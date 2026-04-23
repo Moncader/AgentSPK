@@ -1,0 +1,333 @@
+#!/bin/sh
+
+set -eu
+
+DEFAULT_SPEC_FILE="spec/specifications.spk"
+NL=$(printf '\n_')
+NL=${NL%_}
+TAB=$(printf '\t_')
+TAB=${TAB%_}
+
+trim() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+append_line() {
+  if [ -n "$1" ]; then
+    printf '%s%s%s' "$1" "$NL" "$2"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+json_string() {
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+json_array_from_lines() {
+  _list=$1
+  _first=1
+  printf '['
+  if [ -n "$_list" ]; then
+    _old_ifs=$IFS
+    IFS=$NL
+    set -f
+    for _item in $_list; do
+      [ -z "$_item" ] && continue
+      if [ "$_first" -eq 0 ]; then
+        printf ','
+      fi
+      _first=0
+      json_string "$_item"
+    done
+    set +f
+    IFS=$_old_ifs
+  fi
+  printf ']'
+}
+
+parse_atom() {
+  printf '%s\n' "$1" | awk -F '|' '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    NF < 2 { exit 1 }
+    {
+      raw = trim($0)
+      head = trim($1)
+      pos = index(head, ":")
+      if (pos == 0) exit 1
+      type = substr(head, 1, pos - 1)
+      id = substr(head, pos + 1)
+      if (type == "" || id == "") exit 1
+      printf "%s\t%s\t%s\t%s", type, id, head, raw
+    }
+  '
+}
+
+record_json() {
+  printf '%s\n' "$1" | awk -F '\t' '
+    function esc(s) {
+      gsub(/\\/, "\\\\", s)
+      gsub(/"/, "\\\"", s)
+      return s
+    }
+    NF {
+      printf "{\"atom\":\"%s\",\"file\":\"%s\",\"line\":%s,\"raw\":\"%s\"}", esc($5), esc($1), $2 + 0, esc($6)
+    }
+  '
+}
+
+records_for_atom() {
+  printf '%s\n' "$PROJECT_RECORDS" | awk -F '\t' -v atom="$1" 'NF && $5 == atom'
+}
+
+drop_atom_records() {
+  printf '%s\n' "$1" | awk -F '\t' -v atom="$2" 'NF && $5 != atom'
+}
+
+unique_append() {
+  _list=$1
+  _item=$2
+  if [ -z "$_list" ]; then
+    printf '%s' "$_item"
+  elif printf '%s\n' "$_list" | grep -F -x "$_item" >/dev/null 2>&1; then
+    printf '%s' "$_list"
+  else
+    append_line "$_list" "$_item"
+  fi
+}
+
+print_help() {
+  cat <<'EOF'
+Usage:
+  agentspk-write [--root PATH] [--file PATH] [--replace] --atom 'type:id | ...' [--atom 'type:id | ...']
+
+Defaults:
+  --file defaults to spec/specifications.spk
+EOF
+}
+
+scan_project() {
+  PROJECT_RECORDS=""
+  TARGET_PARSE_ERRORS=""
+  _old_ifs=$IFS
+  IFS=$NL
+  set -f
+  for _abs in $(find "$ROOT_ABS" -type f -name '*.spk' | LC_ALL=C sort); do
+    _rel=${_abs#"$ROOT_ABS"/}
+    _line_number=0
+    while IFS= read -r _raw || [ -n "$_raw" ]; do
+      _line_number=$((_line_number + 1))
+      _trimmed=$(trim "$_raw")
+      case "$_trimmed" in
+        ''|'#'*) continue ;;
+      esac
+      if _parsed=$(parse_atom "$_trimmed" 2>/dev/null); then
+        _record=$(printf '%s\t%s\t%s\n' "$_rel" "$_line_number" "$_parsed")
+        _record=${_record%$NL}
+        PROJECT_RECORDS=$(append_line "$PROJECT_RECORDS" "$_record")
+      elif [ "$_rel" = "$TARGET_FILE" ]; then
+        TARGET_PARSE_ERRORS=$(append_line "$TARGET_PARSE_ERRORS" "$_line_number:invalid-atom")
+      fi
+    done < "$_abs"
+  done
+  set +f
+  IFS=$_old_ifs
+}
+
+ROOT=.
+TARGET_FILE=$DEFAULT_SPEC_FILE
+REPLACE=0
+INPUT_RECORDS=""
+INPUT_ATOMS=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --root)
+      ROOT=$2
+      shift 2
+      ;;
+    --file)
+      TARGET_FILE=$2
+      shift 2
+      ;;
+    --replace)
+      REPLACE=1
+      shift
+      ;;
+    --atom)
+      if ! _parsed=$(parse_atom "$(trim "$2")" 2>/dev/null); then
+        printf '{"message":'
+        json_string "invalid atom input"
+        printf ',"ok":false}\n'
+        exit 1
+      fi
+      _atom=$(printf '%s\n' "$_parsed" | awk -F '\t' 'NF { print $3 }')
+      if [ -n "$INPUT_ATOMS" ] && printf '%s\n' "$INPUT_ATOMS" | grep -F -x "$_atom" >/dev/null 2>&1; then
+        printf '{"message":'
+        json_string "input contains the same atom more than once: $_atom"
+        printf ',"ok":false}\n'
+        exit 1
+      fi
+      INPUT_ATOMS=$(append_line "$INPUT_ATOMS" "$_atom")
+      _record=$(printf '%s\t0\t%s\n' "$TARGET_FILE" "$_parsed")
+      _record=${_record%$NL}
+      INPUT_RECORDS=$(append_line "$INPUT_RECORDS" "$_record")
+      shift 2
+      ;;
+    --help|-h)
+      print_help
+      exit 0
+      ;;
+    *)
+      printf '{"message":'
+      json_string "unknown argument: $1"
+      printf ',"ok":false}\n'
+      exit 1
+      ;;
+  esac
+done
+
+if [ -z "$INPUT_RECORDS" ]; then
+  printf '{"message":'
+  json_string "write requires at least one --atom argument"
+  printf ',"ok":false}\n'
+  exit 1
+fi
+
+if ! ROOT_ABS=$(cd "$ROOT" 2>/dev/null && pwd -P); then
+  printf '{"message":'
+  json_string "root path does not exist: $ROOT"
+  printf ',"ok":false}\n'
+  exit 1
+fi
+
+TARGET_FILE=$(trim "${TARGET_FILE#./}")
+scan_project
+
+if [ -n "$TARGET_PARSE_ERRORS" ]; then
+  printf '{"message":'
+  json_string "target file contains malformed atoms and cannot be safely rewritten: $TARGET_FILE"
+  printf ',"ok":false,"parse_errors":'
+  json_array_from_lines "$TARGET_PARSE_ERRORS"
+  printf '}\n'
+  exit 1
+fi
+
+FINAL_RECORDS=$PROJECT_RECORDS
+TOUCHED_FILES=$TARGET_FILE
+OPERATIONS=""
+
+_old_ifs=$IFS
+IFS=$NL
+set -f
+for _record in $INPUT_RECORDS; do
+  [ -z "$_record" ] && continue
+  _atom=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $5 }')
+  _raw=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $6 }')
+  _matches=$(records_for_atom "$_atom")
+  _match_count=$(printf '%s\n' "$_matches" | awk 'NF { c++ } END { print c + 0 }')
+
+  if [ "$_match_count" -gt 1 ]; then
+    printf '{"message":'
+    json_string "multiple existing atoms share the same id; repair them before writing: $_atom"
+    printf ',"ok":false}\n'
+    exit 1
+  fi
+
+  _action=created
+  if [ "$_match_count" -eq 1 ]; then
+    if [ "$REPLACE" -ne 1 ]; then
+      printf '{"existing":'
+      record_json "$_matches"
+      printf ',"message":'
+      json_string "atom already exists and --replace was not supplied: $_atom"
+      printf ',"ok":false}\n'
+      exit 1
+    fi
+    _existing_file=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $1 }')
+    _existing_raw=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $6 }')
+    if [ "$_existing_file" = "$TARGET_FILE" ] && [ "$_existing_raw" = "$_raw" ]; then
+      _action=unchanged
+    elif [ "$_existing_file" = "$TARGET_FILE" ]; then
+      _action=replaced
+    else
+      _action=moved
+      TOUCHED_FILES=$(unique_append "$TOUCHED_FILES" "$_existing_file")
+    fi
+  fi
+
+  FINAL_RECORDS=$(drop_atom_records "$FINAL_RECORDS" "$_atom")
+  FINAL_RECORDS=$(append_line "$FINAL_RECORDS" "$_record")
+  _operation=$(printf '%s\t%s\t%s' "$_action" "$_atom" "$TARGET_FILE")
+  OPERATIONS=$(append_line "$OPERATIONS" "$_operation")
+done
+set +f
+IFS=$_old_ifs
+
+CHANGED_FILES=""
+DELETED_FILES=""
+
+_old_ifs=$IFS
+IFS=$NL
+set -f
+for _file in $TOUCHED_FILES; do
+  [ -z "$_file" ] && continue
+  _abs="$ROOT_ABS/$_file"
+  _records=$(printf '%s\n' "$FINAL_RECORDS" | awk -F '\t' -v file="$_file" 'NF && $1 == file')
+
+  if [ -z "$_records" ]; then
+    if [ -f "$_abs" ]; then
+      rm -f "$_abs"
+      DELETED_FILES=$(unique_append "$DELETED_FILES" "$_file")
+    fi
+    continue
+  fi
+
+  _new_content=$(printf '%s\n' "$_records" | LC_ALL=C sort -t "$TAB" -k3,3 -k4,4 | awk -F '\t' 'BEGIN { ORS = "" } NF { print $6 "\n" }')
+  _old_content=$(awk 'BEGIN { ORS = "" } { print $0 "\n" }' "$_abs" 2>/dev/null || printf '')
+  if [ "$_new_content" != "$_old_content" ]; then
+    mkdir -p "$(dirname "$_abs")"
+    printf '%s' "$_new_content" > "$_abs"
+    CHANGED_FILES=$(unique_append "$CHANGED_FILES" "$_file")
+  fi
+done
+set +f
+IFS=$_old_ifs
+
+printf '{"changed_files":'
+json_array_from_lines "$CHANGED_FILES"
+printf ',"deleted_files":'
+json_array_from_lines "$DELETED_FILES"
+printf ',"ok":true,"operations":['
+
+_first=1
+_old_ifs=$IFS
+IFS=$NL
+set -f
+for _op in $OPERATIONS; do
+  [ -z "$_op" ] && continue
+  _action=$(printf '%s\n' "$_op" | awk -F '\t' 'NF { print $1 }')
+  _atom=$(printf '%s\n' "$_op" | awk -F '\t' 'NF { print $2 }')
+  _file=$(printf '%s\n' "$_op" | awk -F '\t' 'NF { print $3 }')
+  if [ "$_first" -eq 0 ]; then
+    printf ','
+  fi
+  _first=0
+  printf '{"action":'
+  json_string "$_action"
+  printf ',"atom":'
+  json_string "$_atom"
+  printf ',"file":'
+  json_string "$_file"
+  printf '}'
+done
+set +f
+IFS=$_old_ifs
+
+printf '],"root":'
+json_string "$ROOT_ABS"
+printf '}\n'

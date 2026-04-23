@@ -1,0 +1,10 @@
+goal:G_CART_RECOVERY | outcome="increase resumed purchases"; metric="saved-for-later conversion"; target="15%"; reason="buyers often leave before checkout"
+uss:U_SAVE_FOR_LATER | as="returning buyer"; want="save cart items for later"; because="I may finish the purchase on another device" | rel:requires:goal:G_CART_RECOVERY,requires:fea:F_SAVE_FOR_LATER,requires:upn:P_RETURNING_BUYER
+fea:F_SAVE_FOR_LATER | name="Save For Later"; summary="lets buyers move active cart items out of checkout and restore them later" | rel:requires:beh:B_SAVE_FOR_LATER,uses:cmp:C_SAVE_LIST,uses:api:A_CART,uses:dat:D_CART_ITEM
+upn:P_RETURNING_BUYER | name="Returning Buyer"; summary="shops across devices and sessions"; traits="time-poor, price-conscious, mobile-first"
+beh:B_SAVE_FOR_LATER | when="buyer marks a cart item as save for later"; then="system moves the item from the active cart to the saved list"; invariant="saved items remain attached to the buyer account until removed or purchased"; unless="buyer is not signed in and no guest persistence exists" | rel:affects:dat:D_CART_ITEM,defines:cmp:C_SAVE_LIST,requires:uss:U_SAVE_FOR_LATER,uses:api:A_CART
+cmp:C_SAVE_LIST | name="Saved List"; kind="ui"; responsibility="show saved items and restore or remove actions" | rel:uses:api:A_CART,uses:dat:D_CART_ITEM
+api:A_CART | name="Cart API"; summary="manages active and saved cart items"; protocol="http"; version="v1" | ref:openapi:"examples/cart/cart.openapi.yaml"
+dat:D_CART_ITEM | name="Cart Item"; summary="cart or saved item state tied to a buyer"; kind="entity"; storage="postgres"
+arc:AR_CART | style="modular monolith"; nodes="web app, cart service, postgres"; flow="ui -> cart api -> postgres"; notes="saved items reuse cart item storage" | rel:defines:cmp:C_SAVE_LIST,defines:api:A_CART,defines:dat:D_CART_ITEM
+grp:GRP_SAVE_FOR_LATER | name="Save For Later"; summary="atoms that define saved cart items"; scope="cart capability" | rel:belongs:goal:G_CART_RECOVERY,belongs:uss:U_SAVE_FOR_LATER,belongs:fea:F_SAVE_FOR_LATER,belongs:upn:P_RETURNING_BUYER,belongs:beh:B_SAVE_FOR_LATER,belongs:cmp:C_SAVE_LIST,belongs:api:A_CART,belongs:dat:D_CART_ITEM,belongs:arc:AR_CART

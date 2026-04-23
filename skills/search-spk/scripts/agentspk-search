@@ -1,0 +1,351 @@
+#!/bin/sh
+
+set -eu
+
+NL=$(printf '\n_')
+NL=${NL%_}
+TAB=$(printf '\t_')
+TAB=${TAB%_}
+
+trim() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+append_line() {
+  if [ -n "$1" ]; then
+    printf '%s%s%s' "$1" "$NL" "$2"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+json_string() {
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+json_array_from_lines() {
+  _list=$1
+  _first=1
+  printf '['
+  if [ -n "$_list" ]; then
+    _old_ifs=$IFS
+    IFS=$NL
+    set -f
+    for _item in $_list; do
+      [ -z "$_item" ] && continue
+      if [ "$_first" -eq 0 ]; then
+        printf ','
+      fi
+      _first=0
+      json_string "$_item"
+    done
+    set +f
+    IFS=$_old_ifs
+  fi
+  printf ']'
+}
+
+parse_atom() {
+  printf '%s\n' "$1" | awk -F '|' '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    NF < 2 { exit 1 }
+    {
+      raw = trim($0)
+      head = trim($1)
+      pos = index(head, ":")
+      if (pos == 0) exit 1
+      type = substr(head, 1, pos - 1)
+      id = substr(head, pos + 1)
+      if (type == "" || id == "") exit 1
+      printf "%s\t%s\t%s\t%s", type, id, head, raw
+    }
+  '
+}
+
+record_json() {
+  printf '%s\n' "$1" | awk -F '\t' '
+    function esc(s) {
+      gsub(/\\/, "\\\\", s)
+      gsub(/"/, "\\\"", s)
+      return s
+    }
+    NF {
+      printf "{\"atom\":\"%s\",\"file\":\"%s\",\"line\":%s,\"raw\":\"%s\",\"type\":\"%s\"}", esc($5), esc($1), $2 + 0, esc($6), esc($3)
+    }
+  '
+}
+
+record_targets() {
+  printf '%s\n' "$1" | awk -F '\t' '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    NF {
+      part_count = split($6, parts, /\|/)
+      for (i = 3; i <= part_count; i++) {
+        section = trim(parts[i])
+        if (section !~ /^rel:/) continue
+        item_count = split(substr(section, 5), items, /,/) 
+        for (j = 1; j <= item_count; j++) {
+          entry = trim(items[j])
+          colon_count = split(entry, bits, /:/)
+          if (colon_count >= 3) print bits[2] ":" bits[3]
+        }
+      }
+    }
+  '
+}
+
+unique_append() {
+  _list=$1
+  _item=$2
+  if [ -z "$_list" ]; then
+    printf '%s' "$_item"
+  elif printf '%s\n' "$_list" | grep -F -x "$_item" >/dev/null 2>&1; then
+    printf '%s' "$_list"
+  else
+    append_line "$_list" "$_item"
+  fi
+}
+
+sort_records() {
+  printf '%s\n' "$1" | awk 'NF' | LC_ALL=C sort -t "$TAB" -k3,3 -k4,4
+}
+
+record_for_atom() {
+  printf '%s\n' "$PROJECT_RECORDS" | awk -F '\t' -v atom="$1" 'NF && $5 == atom { print; exit }'
+}
+
+print_records_json() {
+  _records=$1
+  _first=1
+  printf '['
+  if [ -n "$_records" ]; then
+    _old_ifs=$IFS
+    IFS=$NL
+    set -f
+    for _record in $_records; do
+      [ -z "$_record" ] && continue
+      if [ "$_first" -eq 0 ]; then
+        printf ','
+      fi
+      _first=0
+      record_json "$_record"
+    done
+    set +f
+    IFS=$_old_ifs
+  fi
+  printf ']'
+}
+
+print_help() {
+  cat <<'EOF'
+Usage:
+  agentspk-search [--root PATH] [--selector GLOB] [--text REGEX] [--include-related] [--depth N] [--all]
+EOF
+}
+
+scan_project() {
+  PROJECT_FILES=""
+  PROJECT_RECORDS=""
+  _old_ifs=$IFS
+  IFS=$NL
+  set -f
+  for _abs in $(find "$ROOT_ABS" -type f -name '*.spk' | LC_ALL=C sort); do
+    _rel=${_abs#"$ROOT_ABS"/}
+    PROJECT_FILES=$(append_line "$PROJECT_FILES" "$_rel")
+    _line_number=0
+    while IFS= read -r _raw || [ -n "$_raw" ]; do
+      _line_number=$((_line_number + 1))
+      _trimmed=$(trim "$_raw")
+      case "$_trimmed" in
+        ''|'#'*) continue ;;
+      esac
+      if _parsed=$(parse_atom "$_trimmed" 2>/dev/null); then
+        _record=$(printf '%s\t%s\t%s\n' "$_rel" "$_line_number" "$_parsed")
+        _record=${_record%$NL}
+        PROJECT_RECORDS=$(append_line "$PROJECT_RECORDS" "$_record")
+      fi
+    done < "$_abs"
+  done
+  set +f
+  IFS=$_old_ifs
+}
+
+ROOT=.
+SELECTORS=""
+TEXTS=""
+INCLUDE_RELATED=0
+DEPTH=1
+ALL=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --root)
+      ROOT=$2
+      shift 2
+      ;;
+    --selector)
+      SELECTORS=$(append_line "$SELECTORS" "$2")
+      shift 2
+      ;;
+    --text)
+      TEXTS=$(append_line "$TEXTS" "$2")
+      shift 2
+      ;;
+    --include-related)
+      INCLUDE_RELATED=1
+      shift
+      ;;
+    --depth)
+      DEPTH=$2
+      shift 2
+      ;;
+    --all)
+      ALL=1
+      shift
+      ;;
+    --help|-h)
+      print_help
+      exit 0
+      ;;
+    *)
+      printf '{"message":'
+      json_string "unknown argument: $1"
+      printf ',"ok":false}\n'
+      exit 1
+      ;;
+  esac
+done
+
+if [ "$ALL" -ne 1 ] && [ -z "$SELECTORS" ] && [ -z "$TEXTS" ]; then
+  printf '{"message":'
+  json_string "provide --all, at least one --selector, or at least one --text pattern"
+  printf ',"ok":false}\n'
+  exit 1
+fi
+
+if ! ROOT_ABS=$(cd "$ROOT" 2>/dev/null && pwd -P); then
+  printf '{"message":'
+  json_string "root path does not exist: $ROOT"
+  printf ',"ok":false}\n'
+  exit 1
+fi
+
+scan_project
+
+DIRECT_RECORDS=""
+DIRECT_ATOMS=""
+
+_old_ifs=$IFS
+IFS=$NL
+set -f
+for _record in $PROJECT_RECORDS; do
+  [ -z "$_record" ] && continue
+  _atom=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $5 }')
+  _raw=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $6 }')
+  _match=1
+
+  if [ "$ALL" -ne 1 ] && [ -n "$SELECTORS" ]; then
+    _selector_hit=0
+    for _selector in $SELECTORS; do
+      case "$_atom" in
+        $_selector)
+          _selector_hit=1
+          break
+          ;;
+      esac
+    done
+    [ "$_selector_hit" -eq 0 ] && _match=0
+  fi
+
+  if [ "$_match" -eq 1 ] && [ -n "$TEXTS" ]; then
+    for _text in $TEXTS; do
+      if printf '%s\n' "$_raw" | grep -E "$_text" >/dev/null 2>&1; then
+        :
+      else
+        _status=$?
+        if [ "$_status" -eq 2 ]; then
+          printf '{"message":'
+          json_string "invalid regex: $_text"
+          printf ',"ok":false}\n'
+          exit 1
+        fi
+        _match=0
+        break
+      fi
+    done
+  fi
+
+  if [ "$_match" -eq 1 ]; then
+    DIRECT_RECORDS=$(append_line "$DIRECT_RECORDS" "$_record")
+    DIRECT_ATOMS=$(unique_append "$DIRECT_ATOMS" "$_atom")
+  fi
+done
+set +f
+IFS=$_old_ifs
+
+DIRECT_RECORDS=$(sort_records "$DIRECT_RECORDS")
+RELATED_RECORDS=""
+
+if [ "$INCLUDE_RELATED" -eq 1 ] && [ -n "$DIRECT_ATOMS" ]; then
+  VISITED=$DIRECT_ATOMS
+  FRONTIER=$DIRECT_ATOMS
+  _step=0
+  while [ "$_step" -lt "$DEPTH" ] && [ -n "$FRONTIER" ]; do
+    NEXT_FRONTIER=""
+    _old_ifs=$IFS
+    IFS=$NL
+    set -f
+    for _atom in $FRONTIER; do
+      _direct=$(record_for_atom "$_atom")
+      if [ -n "$_direct" ]; then
+        for _target in $(record_targets "$_direct"); do
+          if [ -n "$VISITED" ] && printf '%s\n' "$VISITED" | grep -F -x "$_target" >/dev/null 2>&1; then
+            continue
+          fi
+          _target_record=$(record_for_atom "$_target")
+          if [ -n "$_target_record" ]; then
+            VISITED=$(unique_append "$VISITED" "$_target")
+            NEXT_FRONTIER=$(unique_append "$NEXT_FRONTIER" "$_target")
+            RELATED_RECORDS=$(append_line "$RELATED_RECORDS" "$_target_record")
+          fi
+        done
+      fi
+
+      for _candidate in $PROJECT_RECORDS; do
+        [ -z "$_candidate" ] && continue
+        if record_targets "$_candidate" | grep -F -x "$_atom" >/dev/null 2>&1; then
+          _candidate_atom=$(printf '%s\n' "$_candidate" | awk -F '\t' 'NF { print $5 }')
+          if [ -n "$VISITED" ] && printf '%s\n' "$VISITED" | grep -F -x "$_candidate_atom" >/dev/null 2>&1; then
+            continue
+          fi
+          VISITED=$(unique_append "$VISITED" "$_candidate_atom")
+          NEXT_FRONTIER=$(unique_append "$NEXT_FRONTIER" "$_candidate_atom")
+          RELATED_RECORDS=$(append_line "$RELATED_RECORDS" "$_candidate")
+        fi
+      done
+    done
+    set +f
+    IFS=$_old_ifs
+    FRONTIER=$NEXT_FRONTIER
+    _step=$((_step + 1))
+  done
+  RELATED_RECORDS=$(sort_records "$RELATED_RECORDS")
+fi
+
+printf '{"all":%s,"files_scanned":%s,"include_related":%s,"matches":' "$([ "$ALL" -eq 1 ] && printf true || printf false)" "$(printf '%s\n' "$PROJECT_FILES" | awk 'NF { c++ } END { print c + 0 }')" "$([ "$INCLUDE_RELATED" -eq 1 ] && printf true || printf false)"
+print_records_json "$DIRECT_RECORDS"
+printf ',"ok":true,"related":'
+print_records_json "$RELATED_RECORDS"
+printf ',"selectors":'
+json_array_from_lines "$SELECTORS"
+printf ',"text":'
+json_array_from_lines "$TEXTS"
+printf '}\n'

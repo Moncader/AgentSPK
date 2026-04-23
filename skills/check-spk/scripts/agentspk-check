@@ -1,0 +1,307 @@
+#!/bin/sh
+
+set -eu
+
+NL=$(printf '\n_')
+NL=${NL%_}
+TAB=$(printf '\t_')
+TAB=${TAB%_}
+EMPTY_FIELD='__AGENTSPK_EMPTY__'
+
+trim() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+append_line() {
+  if [ -n "$1" ]; then
+    printf '%s%s%s' "$1" "$NL" "$2"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+json_string() {
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+parse_atom() {
+  printf '%s\n' "$1" | awk -F '|' '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    NF < 2 { exit 1 }
+    {
+      raw = trim($0)
+      head = trim($1)
+      pos = index(head, ":")
+      if (pos == 0) exit 1
+      type = substr(head, 1, pos - 1)
+      id = substr(head, pos + 1)
+      if (type == "" || id == "") exit 1
+      printf "%s\t%s\t%s\t%s", type, id, head, raw
+    }
+  '
+}
+
+record_targets() {
+  printf '%s\n' "$1" | awk -F '\t' '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    NF {
+      part_count = split($6, parts, /\|/)
+      for (i = 3; i <= part_count; i++) {
+        section = trim(parts[i])
+        if (section !~ /^rel:/) continue
+        item_count = split(substr(section, 5), items, /,/) 
+        for (j = 1; j <= item_count; j++) {
+          entry = trim(items[j])
+          colon_count = split(entry, bits, /:/)
+          if (colon_count >= 3) print bits[2] ":" bits[3]
+        }
+      }
+    }
+  '
+}
+
+record_refs() {
+  printf '%s\n' "$1" | awk -F '\t' '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    NF {
+      part_count = split($6, parts, /\|/)
+      for (i = 3; i <= part_count; i++) {
+        section = trim(parts[i])
+        if (section !~ /^ref:/) continue
+        item_count = split(substr(section, 5), items, /,/) 
+        for (j = 1; j <= item_count; j++) {
+          entry = trim(items[j])
+          pos = index(entry, ":\"")
+          if (pos > 0 && substr(entry, length(entry), 1) == "\"") {
+            print substr(entry, pos + 2, length(entry) - pos - 2)
+          }
+        }
+      }
+    }
+  '
+}
+
+lookup_atom() {
+  printf '%s\n' "$PROJECT_RECORDS" | awk -F '\t' -v atom="$1" 'NF && $5 == atom { print; exit }'
+}
+
+has_incoming() {
+  _target=$1
+  _old_ifs=$IFS
+  IFS=$NL
+  set -f
+  for _record in $PROJECT_RECORDS; do
+    [ -z "$_record" ] && continue
+    if record_targets "$_record" | grep -F -x "$_target" >/dev/null 2>&1; then
+      set +f
+      IFS=$_old_ifs
+      return 0
+    fi
+  done
+  set +f
+  IFS=$_old_ifs
+  return 1
+}
+
+has_outgoing() {
+  record_targets "$1" | awk 'NF { found = 1 } END { exit(found ? 0 : 1) }'
+}
+
+append_issue() {
+  _file=${3:-$EMPTY_FIELD}
+  _line=${4:-$EMPTY_FIELD}
+  _atom=${5:-$EMPTY_FIELD}
+  _target=${6:-$EMPTY_FIELD}
+  _message=${7:-$EMPTY_FIELD}
+  _issue=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" "$_file" "$_line" "$_atom" "$_target" "$_message")
+  PROJECT_ISSUES=$(append_line "$PROJECT_ISSUES" "$_issue")
+}
+
+print_issues_json() {
+  _first=1
+  printf '['
+  if [ -n "$PROJECT_ISSUES" ]; then
+    _old_ifs=$IFS
+    IFS=$NL
+    set -f
+    for _issue in $PROJECT_ISSUES; do
+      [ -z "$_issue" ] && continue
+      _severity=$(printf '%s\n' "$_issue" | awk -F '\t' 'NF { print $1 }')
+      _code=$(printf '%s\n' "$_issue" | awk -F '\t' 'NF { print $2 }')
+      _file=$(printf '%s\n' "$_issue" | awk -F '\t' 'NF { print $3 }')
+      _line=$(printf '%s\n' "$_issue" | awk -F '\t' 'NF { print $4 }')
+      _atom=$(printf '%s\n' "$_issue" | awk -F '\t' 'NF { print $5 }')
+      _target=$(printf '%s\n' "$_issue" | awk -F '\t' 'NF { print $6 }')
+      _message=$(printf '%s\n' "$_issue" | awk -F '\t' 'NF { print $7 }')
+      if [ "$_first" -eq 0 ]; then
+        printf ','
+      fi
+      _first=0
+      printf '{"code":'
+      json_string "$_code"
+      printf ',"message":'
+      if [ "$_message" = "$EMPTY_FIELD" ]; then
+        json_string ""
+      else
+        json_string "$_message"
+      fi
+      printf ',"severity":'
+      json_string "$_severity"
+      if [ "$_file" != "$EMPTY_FIELD" ]; then
+        printf ',"file":'
+        json_string "$_file"
+      fi
+      if [ "$_line" != "$EMPTY_FIELD" ]; then
+        printf ',"line":%s' "$_line"
+      fi
+      if [ "$_atom" != "$EMPTY_FIELD" ]; then
+        printf ',"atom":'
+        json_string "$_atom"
+      fi
+      if [ "$_target" != "$EMPTY_FIELD" ]; then
+        printf ',"target":'
+        json_string "$_target"
+      fi
+      printf '}'
+    done
+    set +f
+    IFS=$_old_ifs
+  fi
+  printf ']'
+}
+
+print_help() {
+  cat <<'EOF'
+Usage:
+  agentspk-check [--root PATH]
+EOF
+}
+
+scan_project() {
+  PROJECT_FILES=""
+  PROJECT_RECORDS=""
+  PROJECT_ISSUES=""
+  _old_ifs=$IFS
+  IFS=$NL
+  set -f
+  for _abs in $(find "$ROOT_ABS" -type f -name '*.spk' | LC_ALL=C sort); do
+    _rel=${_abs#"$ROOT_ABS"/}
+    PROJECT_FILES=$(append_line "$PROJECT_FILES" "$_rel")
+    _line_number=0
+    while IFS= read -r _raw || [ -n "$_raw" ]; do
+      _line_number=$((_line_number + 1))
+      _trimmed=$(trim "$_raw")
+      case "$_trimmed" in
+        ''|'#'*) continue ;;
+      esac
+      if _parsed=$(parse_atom "$_trimmed" 2>/dev/null); then
+        _record=$(printf '%s\t%s\t%s\n' "$_rel" "$_line_number" "$_parsed")
+        _record=${_record%$NL}
+        PROJECT_RECORDS=$(append_line "$PROJECT_RECORDS" "$_record")
+      else
+        append_issue error parse_error "$_rel" "$_line_number" "" "" "atom must contain a type/id section and a body section"
+      fi
+    done < "$_abs"
+  done
+  set +f
+  IFS=$_old_ifs
+}
+
+ROOT=.
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --root)
+      ROOT=$2
+      shift 2
+      ;;
+    --help|-h)
+      print_help
+      exit 0
+      ;;
+    *)
+      printf '{"message":'
+      json_string "unknown argument: $1"
+      printf ',"ok":false}\n'
+      exit 1
+      ;;
+  esac
+done
+
+if ! ROOT_ABS=$(cd "$ROOT" 2>/dev/null && pwd -P); then
+  printf '{"message":'
+  json_string "root path does not exist: $ROOT"
+  printf ',"ok":false}\n'
+  exit 1
+fi
+
+scan_project
+
+SEEN_ATOMS=""
+REPORTED_DUPES=""
+_old_ifs=$IFS
+IFS=$NL
+set -f
+for _record in $PROJECT_RECORDS; do
+  [ -z "$_record" ] && continue
+  _atom=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $5 }')
+  if [ -n "$SEEN_ATOMS" ] && printf '%s\n' "$SEEN_ATOMS" | grep -F -x "$_atom" >/dev/null 2>&1; then
+    if [ -z "$REPORTED_DUPES" ] || ! printf '%s\n' "$REPORTED_DUPES" | grep -F -x "$_atom" >/dev/null 2>&1; then
+      _first=$(lookup_atom "$_atom")
+      _file=$(printf '%s\n' "$_first" | awk -F '\t' 'NF { print $1 }')
+      _line=$(printf '%s\n' "$_first" | awk -F '\t' 'NF { print $2 }')
+      append_issue error duplicate_atom "$_file" "$_line" "$_atom" "" "duplicate definition for $_atom"
+      REPORTED_DUPES=$(append_line "$REPORTED_DUPES" "$_atom")
+    fi
+  else
+    SEEN_ATOMS=$(append_line "$SEEN_ATOMS" "$_atom")
+  fi
+done
+
+for _record in $PROJECT_RECORDS; do
+  [ -z "$_record" ] && continue
+  _file=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $1 }')
+  _line=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $2 }')
+  _atom=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $5 }')
+
+  for _target in $(record_targets "$_record"); do
+    if [ -z "$(lookup_atom "$_target")" ]; then
+      append_issue error missing_relation_target "$_file" "$_line" "$_atom" "$_target" "relation target does not exist: $_target"
+    fi
+  done
+
+  for _ref in $(record_refs "$_record"); do
+    case "$_ref" in
+      /*) _path=$_ref ;;
+      *) _path="$ROOT_ABS/$_ref" ;;
+    esac
+    if [ ! -e "$_path" ]; then
+      append_issue error missing_reference_path "$_file" "$_line" "$_atom" "$_ref" "referenced path does not exist: $_ref"
+    fi
+  done
+
+  if ! has_outgoing "$_record" && ! has_incoming "$_atom"; then
+    append_issue warning strangler_atom "$_file" "$_line" "$_atom" "" "atom has no incoming or outgoing relations"
+  fi
+done
+set +f
+IFS=$_old_ifs
+
+_errors=$(printf '%s\n' "$PROJECT_ISSUES" | awk -F '\t' '$1 == "error" { c++ } END { print c + 0 }')
+_warnings=$(printf '%s\n' "$PROJECT_ISSUES" | awk -F '\t' '$1 == "warning" { c++ } END { print c + 0 }')
+
+printf '{"issues":'
+print_issues_json
+printf ',"ok":true,"summary":{"atoms":%s,"errors":%s,"files_scanned":%s,"warnings":%s}}\n' "$(printf '%s\n' "$PROJECT_RECORDS" | awk 'NF { c++ } END { print c + 0 }')" "$_errors" "$(printf '%s\n' "$PROJECT_FILES" | awk 'NF { c++ } END { print c + 0 }')" "$_warnings"

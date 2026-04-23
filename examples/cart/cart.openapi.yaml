@@ -1,0 +1,8 @@
+openapi: 3.1.0
+info:
+  title: Cart API
+  version: v1
+paths:
+  /cart/saved-items:
+    get:
+      summary: List saved cart items
