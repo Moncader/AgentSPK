@@ -1,12 +1,12 @@
 ---
 name: search-spk
-description: Load AgentSPK atoms by id, wildcard, text pattern, related references, or full atomset. Use before modifying implementation, when exploring specifications, or when the user asks about requirements, features, behaviors, APIs, data models, constraints, or technical decisions.
+description: Load AgentSPK atoms by id, wildcard, text pattern, related references, or full atomset when the current task needs durable specification context that is not already available in the session.
 compatibility: Requires a POSIX shell for scripts/agentspk-search. On Windows, scripts/agentspk-search.ps1 requires bash, sh, or WSL.
 ---
 
 # Search SPK Skill
 
-Use this skill when you need to load one atom, many atoms, wildcard matches, related atoms, or the full atomset.
+Use this skill when you need to load one atom, many atoms, wildcard matches, related atoms, or the full atomset. Do not invoke it reflexively on every turn.
 
 ## Available Scripts
 
@@ -29,8 +29,12 @@ pwsh -File scripts/agentspk-search.ps1
 - Use repeated `--selector` arguments to load multiple atoms in one call.
 - Use `--text` for grep-style regex matching against atom lines.
 - Use `--include-related` when you need incoming and outgoing neighbors of the matched atoms.
-- Use `--all` when you need the entire atomset for overall project understanding.
-- Before changing implementation in any create, read, update, delete, repair, or refactor flow, search AgentSPK first for relevant context.
+- Use `--all` only when the task needs the entire atomset for overall project understanding.
+- Search AgentSPK when the current task lacks enough specification context to proceed safely from the conversation, prior loaded atoms, and inspected source files.
+- Search before edits when work is broad, ambiguous, cross-cutting, touches unfamiliar existing behavior, or changes durable behavior, interfaces, data models, architecture, constraints, deprecations, or historical rationale.
+- Within a session, reuse prior search results and inspected context. Do not repeat the same selector or text query just in case something changed.
+- Assume no human intervention or source/spec changes outside the agent's own work occurred within the same session unless the user says so or tools show evidence of it.
+- If a local code change is safe from source context alone, skip AgentSPK search.
 - If the user is speaking another language, translate the intent conceptually and search AgentSPK in English because the atomset should stay English.
 
 ## Selector Semantics

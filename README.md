@@ -8,10 +8,11 @@ AgentSPK is a repo-native specification format for AI coding agents. It stores p
 
 ## Why AgentSPK
 
-- Git-friendly plain text with stable diffs.
+- Git-friendly plain text with stable, conflict-resistant diffs.
 - Low-context files that are easy to grep and reload.
 - Recoverable project knowledge after context loss or session boundaries.
 - Model-agnostic storage that works with local or hosted agents.
+- Session-friendly guidance so agents search and write specs only when durable context is needed.
 
 ## Example
 
@@ -43,11 +44,12 @@ skills/check-spk/scripts/agentspk-check --root .
 
 The CLI guarantees:
 
-- deterministic atom sorting by type and id
+- sectioned default storage for new atoms in `spec/specifications.spk`
+- deterministic atom sorting by type and id within touched files
 - explicit duplicate replacement via `--replace`
 - machine-readable JSON output for agents
 
-By default, writes go to `spec/specifications.spk` unless the repository or user specifies a different `.spk` file.
+By default, new atoms go to `spec/specifications.spk`. Touched files are rendered as type sections with blank lines between sections, and replacements update matched atoms in place unless `--file` is explicitly provided.
 
 ## Installing In Another Project
 
@@ -56,6 +58,7 @@ Tell the target AI agent to read and follow `INSTALL_AGENTSPK.md`.
 That file explains:
 
 - which files to copy into the target repository
+- how to upgrade an existing AgentSPK install
 - what to add to `AGENTS.md`
 - where to place the AgentSPK tool and skills
 

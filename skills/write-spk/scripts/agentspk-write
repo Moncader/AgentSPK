@@ -3,6 +3,7 @@
 set -eu
 
 DEFAULT_SPEC_FILE="spec/specifications.spk"
+AUTO_FILE_MARKER="__AGENTSPK_AUTO_FILE__"
 NL=$(printf '\n_')
 NL=${NL%_}
 TAB=$(printf '\t_')
@@ -100,19 +101,44 @@ unique_append() {
   fi
 }
 
+default_file_for_atom() {
+  printf '%s' "$DEFAULT_SPEC_FILE"
+}
+
+parse_errors_for_file() {
+  printf '%s\n' "$PROJECT_PARSE_ERRORS" | awk -F '\t' -v file="$1" 'NF && $1 == file { print $2 ":" $3 }'
+}
+
+format_records() {
+  printf '%s\n' "$1" | LC_ALL=C sort -t "$TAB" -k3,3 -k4,4 | awk -F '\t' '
+    BEGIN { current = ""; printed = 0; ORS = "" }
+    NF {
+      if ($3 != current) {
+        if (printed) print "\n"
+        current = $3
+        print "# " current "\n"
+        printed = 1
+      }
+      print $6 "\n"
+    }
+  '
+}
+
 print_help() {
   cat <<'EOF'
 Usage:
   agentspk-write [--root PATH] [--file PATH] [--replace] --atom 'type:id | ...' [--atom 'type:id | ...']
 
 Defaults:
-  --file defaults to spec/specifications.spk
+  --file defaults to spec/specifications.spk for new atoms
+  without --file, replacements update the matched atom in place
+  touched files are rendered as type sections sorted by type and id
 EOF
 }
 
 scan_project() {
   PROJECT_RECORDS=""
-  TARGET_PARSE_ERRORS=""
+  PROJECT_PARSE_ERRORS=""
   _old_ifs=$IFS
   IFS=$NL
   set -f
@@ -129,8 +155,9 @@ scan_project() {
         _record=$(printf '%s\t%s\t%s\n' "$_rel" "$_line_number" "$_parsed")
         _record=${_record%$NL}
         PROJECT_RECORDS=$(append_line "$PROJECT_RECORDS" "$_record")
-      elif [ "$_rel" = "$TARGET_FILE" ]; then
-        TARGET_PARSE_ERRORS=$(append_line "$TARGET_PARSE_ERRORS" "$_line_number:invalid-atom")
+      else
+        _parse_error=$(printf '%s\t%s\tinvalid-atom' "$_rel" "$_line_number")
+        PROJECT_PARSE_ERRORS=$(append_line "$PROJECT_PARSE_ERRORS" "$_parse_error")
       fi
     done < "$_abs"
   done
@@ -139,7 +166,8 @@ scan_project() {
 }
 
 ROOT=.
-TARGET_FILE=$DEFAULT_SPEC_FILE
+TARGET_FILE=""
+TARGET_FILE_EXPLICIT=0
 REPLACE=0
 INPUT_RECORDS=""
 INPUT_ATOMS=""
@@ -152,6 +180,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --file)
       TARGET_FILE=$2
+      TARGET_FILE_EXPLICIT=1
       shift 2
       ;;
     --replace)
@@ -173,7 +202,7 @@ while [ "$#" -gt 0 ]; do
         exit 1
       fi
       INPUT_ATOMS=$(append_line "$INPUT_ATOMS" "$_atom")
-      _record=$(printf '%s\t0\t%s\n' "$TARGET_FILE" "$_parsed")
+      _record=$(printf '%s\t0\t%s\n' "$AUTO_FILE_MARKER" "$_parsed")
       _record=${_record%$NL}
       INPUT_RECORDS=$(append_line "$INPUT_RECORDS" "$_record")
       shift 2
@@ -205,20 +234,13 @@ if ! ROOT_ABS=$(cd "$ROOT" 2>/dev/null && pwd -P); then
   exit 1
 fi
 
-TARGET_FILE=$(trim "${TARGET_FILE#./}")
+if [ "$TARGET_FILE_EXPLICIT" -eq 1 ]; then
+  TARGET_FILE=$(trim "${TARGET_FILE#./}")
+fi
 scan_project
 
-if [ -n "$TARGET_PARSE_ERRORS" ]; then
-  printf '{"message":'
-  json_string "target file contains malformed atoms and cannot be safely rewritten: $TARGET_FILE"
-  printf ',"ok":false,"parse_errors":'
-  json_array_from_lines "$TARGET_PARSE_ERRORS"
-  printf '}\n'
-  exit 1
-fi
-
 FINAL_RECORDS=$PROJECT_RECORDS
-TOUCHED_FILES=$TARGET_FILE
+TOUCHED_FILES=""
 OPERATIONS=""
 
 _old_ifs=$IFS
@@ -227,15 +249,32 @@ set -f
 for _record in $INPUT_RECORDS; do
   [ -z "$_record" ] && continue
   _atom=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $5 }')
+  _type=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $3 }')
+  _id=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $4 }')
   _raw=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $6 }')
   _matches=$(records_for_atom "$_atom")
   _match_count=$(printf '%s\n' "$_matches" | awk 'NF { c++ } END { print c + 0 }')
+  _existing_file=""
+  _existing_raw=""
 
   if [ "$_match_count" -gt 1 ]; then
     printf '{"message":'
     json_string "multiple existing atoms share the same id; repair them before writing: $_atom"
     printf ',"ok":false}\n'
     exit 1
+  fi
+
+  if [ "$_match_count" -eq 1 ]; then
+    _existing_file=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $1 }')
+    _existing_raw=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $6 }')
+  fi
+
+  if [ "$TARGET_FILE_EXPLICIT" -eq 1 ]; then
+    _target_file=$TARGET_FILE
+  elif [ -n "$_existing_file" ]; then
+    _target_file=$_existing_file
+  else
+    _target_file=$(default_file_for_atom "$_atom")
   fi
 
   _action=created
@@ -248,11 +287,9 @@ for _record in $INPUT_RECORDS; do
       printf ',"ok":false}\n'
       exit 1
     fi
-    _existing_file=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $1 }')
-    _existing_raw=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $6 }')
-    if [ "$_existing_file" = "$TARGET_FILE" ] && [ "$_existing_raw" = "$_raw" ]; then
+    if [ "$_existing_file" = "$_target_file" ] && [ "$_existing_raw" = "$_raw" ]; then
       _action=unchanged
-    elif [ "$_existing_file" = "$TARGET_FILE" ]; then
+    elif [ "$_existing_file" = "$_target_file" ]; then
       _action=replaced
     else
       _action=moved
@@ -260,9 +297,11 @@ for _record in $INPUT_RECORDS; do
     fi
   fi
 
+  TOUCHED_FILES=$(unique_append "$TOUCHED_FILES" "$_target_file")
   FINAL_RECORDS=$(drop_atom_records "$FINAL_RECORDS" "$_atom")
-  FINAL_RECORDS=$(append_line "$FINAL_RECORDS" "$_record")
-  _operation=$(printf '%s\t%s\t%s' "$_action" "$_atom" "$TARGET_FILE")
+  _new_record=$(printf '%s\t0\t%s\t%s\t%s\t%s' "$_target_file" "$_type" "$_id" "$_atom" "$_raw")
+  FINAL_RECORDS=$(append_line "$FINAL_RECORDS" "$_new_record")
+  _operation=$(printf '%s\t%s\t%s' "$_action" "$_atom" "$_target_file")
   OPERATIONS=$(append_line "$OPERATIONS" "$_operation")
 done
 set +f
@@ -277,6 +316,17 @@ set -f
 for _file in $TOUCHED_FILES; do
   [ -z "$_file" ] && continue
   _abs="$ROOT_ABS/$_file"
+  _file_parse_errors=$(parse_errors_for_file "$_file")
+
+  if [ -n "$_file_parse_errors" ]; then
+    printf '{"message":'
+    json_string "target file contains malformed atoms and cannot be safely rewritten: $_file"
+    printf ',"ok":false,"parse_errors":'
+    json_array_from_lines "$_file_parse_errors"
+    printf '}\n'
+    exit 1
+  fi
+
   _records=$(printf '%s\n' "$FINAL_RECORDS" | awk -F '\t' -v file="$_file" 'NF && $1 == file')
 
   if [ -z "$_records" ]; then
@@ -287,11 +337,11 @@ for _file in $TOUCHED_FILES; do
     continue
   fi
 
-  _new_content=$(printf '%s\n' "$_records" | LC_ALL=C sort -t "$TAB" -k3,3 -k4,4 | awk -F '\t' 'BEGIN { ORS = "" } NF { print $6 "\n" }')
+  _new_content=$(format_records "$_records")
   _old_content=$(awk 'BEGIN { ORS = "" } { print $0 "\n" }' "$_abs" 2>/dev/null || printf '')
   if [ "$_new_content" != "$_old_content" ]; then
     mkdir -p "$(dirname "$_abs")"
-    printf '%s' "$_new_content" > "$_abs"
+    printf '%s\n' "$_new_content" > "$_abs"
     CHANGED_FILES=$(unique_append "$CHANGED_FILES" "$_file")
   fi
 done

@@ -1,12 +1,13 @@
 # SPK Format
 
-SPK is a one-line-per-atom specification format for AI agents.
+SPK stores each specification atom on its own line for AI agents.
 
 ## Purpose
 
 - keep project specifications compact and grepable
 - minimize context cost when reloading project knowledge
 - preserve specifications as repo-native text files
+- reduce merge conflicts by separating atoms into deterministic type sections
 
 ## Atom Shape
 
@@ -17,6 +18,7 @@ SPK is a one-line-per-atom specification format for AI agents.
 ## Core Rules
 
 - Exactly one atom per line.
+- A `.spk` file may contain one atom or many atoms.
 - The first field is always `<type>:<id>`.
 - The second field is always the body.
 - The body is `key="value"` pairs separated by `;`.
@@ -26,6 +28,7 @@ SPK is a one-line-per-atom specification format for AI agents.
 - If both exist, the order is body, then `rel`, then `ref`.
 - Keys must not repeat within one atom.
 - IDs should be unique within their type.
+- Prefer stable ASCII IDs using letters, digits, `_`, `-`, or `.` so atoms sort and grep predictably.
 - Reference paths should be repo-root relative so tooling can validate them consistently.
 
 ## Types
@@ -45,7 +48,7 @@ SPK is a one-line-per-atom specification format for AI agents.
 - `asm`: assumption
 - `tds`: technical design decision
 - `cfg`: configuration
-- `chg`: important historical change
+- `chg`: historical change required to understand why current specification or code exists
 - `dep`: deprecation
 - `grp`: retrieval or targeting group
 
@@ -90,6 +93,24 @@ SPK is a one-line-per-atom specification format for AI agents.
 - `grp`: `name`, `summary`, `scope`
 
 For `fea`, only `name` is required. `summary` and `notes` are optional.
+
+## Atom Granularity
+
+- Prefer one compact atom for a cohesive feature, interface, behavior, configuration set, data model, or design decision.
+- Use `ref` entries to point to detailed code or documentation instead of copying every implementation detail into atom values.
+- Split details into separate atoms only when they have independently important specification, relations, lifecycle, or retrieval value.
+- Use one overview atom as the lookup point when a topic needs multiple detail atoms.
+- Use `chg` only for historical rationale such as legacy migrations or deprecated-but-still-present behavior, not for every implementation change.
+
+## Storage Layout
+
+- Tools must treat the atomset as all `.spk` files under the repository root.
+- The default writer stores new atoms in `spec/specifications.spk`.
+- Touched files are rendered as type sections with blank lines between sections.
+- Atoms within each touched file are sorted by `type:id`.
+- Replacing an existing atom without `--file` updates the matched atom in place.
+- Passing `--file` intentionally overrides the default target path.
+- Same-type concurrent edits can still conflict when they touch the same insertion point; resolve those conflicts by preserving each intended atom line in sorted order.
 
 ## Extension Rule
 

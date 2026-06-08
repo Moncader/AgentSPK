@@ -36,6 +36,7 @@ pwsh -File scripts/agentspk-check.ps1
 - The command returns a machine-readable JSON report.
 - The command does not treat specification issues as a hard tool failure.
 - Use the report to repair the atomset with the write skill.
+- Treat isolation warnings as prompts to evaluate retrieval usefulness, not as a requirement to add filler relations or low-value atoms.
 
 ## Example
 

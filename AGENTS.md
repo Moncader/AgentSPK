@@ -9,22 +9,26 @@ When you modify files here, you may be changing AgentSPK's own behavior, documen
 This repository uses the AgentSPK skill packages directly from `skills/<skill-name>/SKILL.md`.
 Do not assume an installation under `.agents/`; use the root `skills/` directory and each skill's bundled `scripts/` files.
 
-Use AgentSPK proactively. It exists to keep implementation work aligned with the repository's intended behavior and to make important product and technical knowledge durable instead of leaving it only in transient chat context or scattered code.
+Use AgentSPK proactively, not reflexively. It exists to keep implementation work aligned with the repository's intended behavior and to make important product and technical knowledge durable instead of leaving it only in transient chat context or scattered code.
 
 When to read AgentSPK:
 
-- Before modifying implementation in any create, read, update, delete, repair, refactor, or migration flow, load relevant specification context first.
-- Read `skills/search-spk/SKILL.md` before loading project specification context.
-- If the request touches an existing area of the system, search for related goals, user stories, features, behaviors, components, interfaces, data models, constraints, assumptions, technical designs, changes, and deprecations before editing code.
-- If the request is broad, ambiguous, or likely to span multiple areas, load more related atoms or the full atomset.
+- Read `skills/search-spk/SKILL.md` before the first AgentSPK search in a session.
+- Search AgentSPK when the current task needs specification context that is not already available in the conversation, loaded atoms, or inspected source files.
+- Search before edits when the request is broad, ambiguous, cross-cutting, touches unfamiliar existing behavior, or changes durable behavior, interfaces, data models, architecture, constraints, deprecations, or historical rationale.
+- Within the same session, reuse prior AgentSPK search results and inspected context. Do not repeat the same search query just in case something changed.
+- Assume no human intervention or source/spec changes outside the agent's own work have occurred within the same session unless the user says so or tools show evidence of it.
+- If source files and existing session context are enough to safely handle a local implementation task, skip AgentSPK search.
 
 When to write AgentSPK:
 
-- If the user is defining specifications, requirements, features, product behavior, APIs, data models, architecture, constraints, assumptions, or project groupings, capture that knowledge in AgentSPK.
-- If implementation work creates or changes durable technical decisions, configurations, behaviors, interfaces, data models, assumptions, deprecations, or historically important changes, capture that knowledge in AgentSPK as part of the task.
-- If the user interaction naturally produces any valid AgentSPK atom, follow the write skill and record it instead of leaving it only in prose.
+- If the user is defining specifications, requirements, features, product behavior, APIs, data models, architecture, constraints, assumptions, or project groupings, capture durable knowledge in AgentSPK.
+- If implementation work creates or changes durable technical decisions, configurations, behaviors, interfaces, data models, assumptions, deprecations, or important historical rationale that is not obvious from code or docs, capture that knowledge in AgentSPK as part of the task.
+- Do not record routine implementation steps, command results, refactors, formatting, small fixes, or details that are immediately discoverable in source code.
+- Prefer compact atoms that summarize a cohesive area and point to detailed code or documentation with `ref` entries. Split atoms only when a subtopic has independently important specification, relations, or retrieval value.
+- Use `chg` atoms only for historical changes that future agents must know to understand why a specification or code path exists, such as legacy migrations or deprecated-but-still-present behavior. Do not create `chg` atoms for every code change.
 - Read `skills/write-spk/SKILL.md` before creating or updating atoms.
-- Default all writes to `spec/specifications.spk` unless the user or repository rules explicitly choose another `.spk` file.
+- Use the write CLI's default sectioned storage for new atoms unless the user or repository rules explicitly require `--file`.
 - Do not overwrite an existing atom unless you intentionally pass `--replace`.
 
 Language and format rules:
