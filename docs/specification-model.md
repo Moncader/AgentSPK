@@ -76,4 +76,4 @@ Use `chg` sparingly. A `chg` atom should explain historical rationale required t
 
 ## Storage Layout
 
-The writer's default storage is a sectioned shared file: new atoms go to `spec/specifications.spk`, and touched files are rendered as type sections with blank lines between sections and deterministic sorting by type and id. Replacements update the matched atom in place, and `--file` is an explicit override. The default optimizes for one grep-friendly location.
+The writer's default storage is a sectioned shared file: new atoms go to `spec/specifications.spk`, touched files are rendered as type sections with blank lines between sections and deterministic sorting by type and id, replacements update the matched atom in place, and deletes require exact `type:id` selectors. `--file` is an explicit override for write placement. The default optimizes for one grep-friendly location.

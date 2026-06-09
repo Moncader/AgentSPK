@@ -1,12 +1,12 @@
 ---
 name: write-spk
-description: Create, update, and intentionally replace AgentSPK atoms in .spk files when durable specification knowledge should be recorded.
+description: Create, update, replace, and delete AgentSPK atoms in .spk files when durable specification knowledge should be recorded.
 compatibility: Requires a POSIX shell for scripts/agentspk-write. On Windows, scripts/agentspk-write.ps1 requires bash, sh, or WSL.
 ---
 
 # Write SPK Skill
 
-Use this skill when you need to create, update, or intentionally move atoms between `.spk` files. AgentSPK is durable specification memory, not an activity log.
+Use this skill when you need to create, update, delete, or intentionally move atoms between `.spk` files. AgentSPK is durable specification memory, not an activity log.
 
 ## Available Scripts
 
@@ -30,7 +30,9 @@ pwsh -File scripts/agentspk-write.ps1
 - By default, replacing an existing atom updates the matched atom in place.
 - Pass `--file` only when you intentionally want a specific target file.
 - Pass one or more complete atom lines with repeated `--atom` arguments.
+- Delete atoms with repeated exact `--delete 'type:id'` arguments.
 - Only pass `--replace` when you intentionally want to override an existing `type:id`.
+- `--delete` does not accept wildcards and should not be combined with `--atom`, `--replace`, or `--file`.
 - If the tool refuses a duplicate and you did not mean to replace it, stop and choose a new ID.
 - Always write atom content in English, even if the user is speaking another language.
 - Use this skill when user conversation or implementation work produces durable specification knowledge, not only when the user explicitly names `.spk` files.
@@ -47,6 +49,7 @@ The tool rewrites managed `.spk` files mechanically so diffs stay predictable:
 - touched files are rendered as type sections with blank lines between sections
 - atoms inside each section are sorted by id
 - existing atoms with the same `type:id` are rejected unless `--replace` is present
+- deletes require exact `type:id` matches and reject wildcard-style selectors
 
 ## Examples
 
@@ -70,12 +73,18 @@ Write multiple atoms in one call:
 scripts/agentspk-write --root . --atom 'uss:U_SAVE | as="buyer"; want="save items for later"; because="I may purchase later from another device" | rel:requires:fea:F_SAVE' --atom 'fea:F_SAVE | name="Save For Later" | rel:requires:beh:B_SAVE,uses:api:A_CART'
 ```
 
+Delete one or more atoms by exact id:
+
+```bash
+scripts/agentspk-write --root . --delete 'uss:U_SAVE' --delete 'fea:F_SAVE'
+```
+
 ## Output
 
 The command returns JSON describing:
 
 - whether the operation succeeded
 - which files changed
-- which atoms were created, replaced, moved, or left unchanged
+- which atoms were created, replaced, moved, deleted, or left unchanged
 
 Use that JSON as the source of truth instead of inferring what happened from git diffs alone.

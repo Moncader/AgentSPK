@@ -27,7 +27,7 @@ When to write AgentSPK:
 - Do not record routine implementation steps, command results, refactors, formatting, small fixes, or details that are immediately discoverable in source code.
 - Prefer compact atoms that summarize a cohesive area and point to detailed code or documentation with `ref` entries. Split atoms only when a subtopic has independently important specification, relations, or retrieval value.
 - Use `chg` atoms only for historical changes that future agents must know to understand why a specification or code path exists, such as legacy migrations or deprecated-but-still-present behavior. Do not create `chg` atoms for every code change.
-- Read `skills/write-spk/SKILL.md` before creating or updating atoms.
+- Read `skills/write-spk/SKILL.md` before creating, updating, or deleting atoms.
 - Use the write CLI's default sectioned storage for new atoms unless the user or repository rules explicitly require `--file`.
 - Do not overwrite an existing atom unless you intentionally pass `--replace`.
 
@@ -41,6 +41,12 @@ Validation:
 
 - Read `skills/check-spk/SKILL.md` before validating or repairing the atomset.
 - After meaningful AgentSPK edits, or when the specification may be stale or inconsistent, run the checker and repair issues when appropriate.
+
+Testing:
+
+- After modifying this repository, run the test suite and ensure it passes before considering the task complete.
+- Add or update tests for all new features, behaviors, interfaces, tooling changes, and bug fixes.
+- Use `tests/run.sh` for the repository test suite unless a task explicitly adds or documents another test command.
 
 Tools:
 

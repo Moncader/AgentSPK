@@ -68,6 +68,31 @@ parse_atom() {
   '
 }
 
+parse_atom_ref() {
+  _value=$(trim "$1")
+  case "$_value" in
+    *'*'*|*'?'*|*'['*|*']'*)
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$_value" | awk '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    {
+      raw = trim($0)
+      pos = index(raw, ":")
+      if (pos == 0) exit 1
+      type = substr(raw, 1, pos - 1)
+      id = substr(raw, pos + 1)
+      if (type == "" || id == "") exit 1
+      printf "%s\t%s\t%s", type, id, type ":" id
+    }
+  '
+}
+
 record_json() {
   printf '%s\n' "$1" | awk -F '\t' '
     function esc(s) {
@@ -128,10 +153,13 @@ print_help() {
   cat <<'EOF'
 Usage:
   agentspk-write [--root PATH] [--file PATH] [--replace] --atom 'type:id | ...' [--atom 'type:id | ...']
+  agentspk-write [--root PATH] --delete 'type:id' [--delete 'type:id']
 
 Defaults:
   --file defaults to spec/specifications.spk for new atoms
   without --file, replacements update the matched atom in place
+  delete uses exact type:id matches only and does not accept wildcards
+  delete mode does not accept --file or --replace
   touched files are rendered as type sections sorted by type and id
 EOF
 }
@@ -171,6 +199,7 @@ TARGET_FILE_EXPLICIT=0
 REPLACE=0
 INPUT_RECORDS=""
 INPUT_ATOMS=""
+DELETE_ATOMS=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -207,6 +236,23 @@ while [ "$#" -gt 0 ]; do
       INPUT_RECORDS=$(append_line "$INPUT_RECORDS" "$_record")
       shift 2
       ;;
+    --delete)
+      if ! _parsed=$(parse_atom_ref "$2" 2>/dev/null); then
+        printf '{"message":'
+        json_string "invalid delete atom id"
+        printf ',"ok":false}\n'
+        exit 1
+      fi
+      _atom=$(printf '%s\n' "$_parsed" | awk -F '\t' 'NF { print $3 }')
+      if [ -n "$DELETE_ATOMS" ] && printf '%s\n' "$DELETE_ATOMS" | grep -F -x "$_atom" >/dev/null 2>&1; then
+        printf '{"message":'
+        json_string "input contains the same delete atom id more than once: $_atom"
+        printf ',"ok":false}\n'
+        exit 1
+      fi
+      DELETE_ATOMS=$(append_line "$DELETE_ATOMS" "$_atom")
+      shift 2
+      ;;
     --help|-h)
       print_help
       exit 0
@@ -220,11 +266,33 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$INPUT_RECORDS" ]; then
+if [ -n "$INPUT_RECORDS" ] && [ -n "$DELETE_ATOMS" ]; then
   printf '{"message":'
-  json_string "write requires at least one --atom argument"
+  json_string "cannot combine --atom and --delete in one call"
   printf ',"ok":false}\n'
   exit 1
+fi
+
+if [ -z "$INPUT_RECORDS" ] && [ -z "$DELETE_ATOMS" ]; then
+  printf '{"message":'
+  json_string "write requires at least one --atom or --delete argument"
+  printf ',"ok":false}\n'
+  exit 1
+fi
+
+if [ -n "$DELETE_ATOMS" ]; then
+  if [ "$REPLACE" -eq 1 ]; then
+    printf '{"message":'
+    json_string "--replace is not supported with --delete"
+    printf ',"ok":false}\n'
+    exit 1
+  fi
+  if [ "$TARGET_FILE_EXPLICIT" -eq 1 ]; then
+    printf '{"message":'
+    json_string "--file is not supported with --delete"
+    printf ',"ok":false}\n'
+    exit 1
+  fi
 fi
 
 if ! ROOT_ABS=$(cd "$ROOT" 2>/dev/null && pwd -P); then
@@ -246,64 +314,92 @@ OPERATIONS=""
 _old_ifs=$IFS
 IFS=$NL
 set -f
-for _record in $INPUT_RECORDS; do
-  [ -z "$_record" ] && continue
-  _atom=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $5 }')
-  _type=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $3 }')
-  _id=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $4 }')
-  _raw=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $6 }')
-  _matches=$(records_for_atom "$_atom")
-  _match_count=$(printf '%s\n' "$_matches" | awk 'NF { c++ } END { print c + 0 }')
-  _existing_file=""
-  _existing_raw=""
+if [ -n "$DELETE_ATOMS" ]; then
+  for _atom in $DELETE_ATOMS; do
+    [ -z "$_atom" ] && continue
+    _matches=$(records_for_atom "$_atom")
+    _match_count=$(printf '%s\n' "$_matches" | awk 'NF { c++ } END { print c + 0 }')
 
-  if [ "$_match_count" -gt 1 ]; then
-    printf '{"message":'
-    json_string "multiple existing atoms share the same id; repair them before writing: $_atom"
-    printf ',"ok":false}\n'
-    exit 1
-  fi
-
-  if [ "$_match_count" -eq 1 ]; then
-    _existing_file=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $1 }')
-    _existing_raw=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $6 }')
-  fi
-
-  if [ "$TARGET_FILE_EXPLICIT" -eq 1 ]; then
-    _target_file=$TARGET_FILE
-  elif [ -n "$_existing_file" ]; then
-    _target_file=$_existing_file
-  else
-    _target_file=$(default_file_for_atom "$_atom")
-  fi
-
-  _action=created
-  if [ "$_match_count" -eq 1 ]; then
-    if [ "$REPLACE" -ne 1 ]; then
-      printf '{"existing":'
-      record_json "$_matches"
-      printf ',"message":'
-      json_string "atom already exists and --replace was not supplied: $_atom"
+    if [ "$_match_count" -gt 1 ]; then
+      printf '{"message":'
+      json_string "multiple existing atoms share the same id; repair them before deleting: $_atom"
       printf ',"ok":false}\n'
       exit 1
     fi
-    if [ "$_existing_file" = "$_target_file" ] && [ "$_existing_raw" = "$_raw" ]; then
-      _action=unchanged
-    elif [ "$_existing_file" = "$_target_file" ]; then
-      _action=replaced
-    else
-      _action=moved
-      TOUCHED_FILES=$(unique_append "$TOUCHED_FILES" "$_existing_file")
-    fi
-  fi
 
-  TOUCHED_FILES=$(unique_append "$TOUCHED_FILES" "$_target_file")
-  FINAL_RECORDS=$(drop_atom_records "$FINAL_RECORDS" "$_atom")
-  _new_record=$(printf '%s\t0\t%s\t%s\t%s\t%s' "$_target_file" "$_type" "$_id" "$_atom" "$_raw")
-  FINAL_RECORDS=$(append_line "$FINAL_RECORDS" "$_new_record")
-  _operation=$(printf '%s\t%s\t%s' "$_action" "$_atom" "$_target_file")
-  OPERATIONS=$(append_line "$OPERATIONS" "$_operation")
-done
+    if [ "$_match_count" -eq 0 ]; then
+      printf '{"message":'
+      json_string "atom does not exist and cannot be deleted: $_atom"
+      printf ',"ok":false}\n'
+      exit 1
+    fi
+
+    _existing_file=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $1 }')
+    TOUCHED_FILES=$(unique_append "$TOUCHED_FILES" "$_existing_file")
+    FINAL_RECORDS=$(drop_atom_records "$FINAL_RECORDS" "$_atom")
+    _operation=$(printf '%s\t%s\t%s' deleted "$_atom" "$_existing_file")
+    OPERATIONS=$(append_line "$OPERATIONS" "$_operation")
+  done
+else
+  for _record in $INPUT_RECORDS; do
+    [ -z "$_record" ] && continue
+    _atom=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $5 }')
+    _type=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $3 }')
+    _id=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $4 }')
+    _raw=$(printf '%s\n' "$_record" | awk -F '\t' 'NF { print $6 }')
+    _matches=$(records_for_atom "$_atom")
+    _match_count=$(printf '%s\n' "$_matches" | awk 'NF { c++ } END { print c + 0 }')
+    _existing_file=""
+    _existing_raw=""
+
+    if [ "$_match_count" -gt 1 ]; then
+      printf '{"message":'
+      json_string "multiple existing atoms share the same id; repair them before writing: $_atom"
+      printf ',"ok":false}\n'
+      exit 1
+    fi
+
+    if [ "$_match_count" -eq 1 ]; then
+      _existing_file=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $1 }')
+      _existing_raw=$(printf '%s\n' "$_matches" | awk -F '\t' 'NF { print $6 }')
+    fi
+
+    if [ "$TARGET_FILE_EXPLICIT" -eq 1 ]; then
+      _target_file=$TARGET_FILE
+    elif [ -n "$_existing_file" ]; then
+      _target_file=$_existing_file
+    else
+      _target_file=$(default_file_for_atom "$_atom")
+    fi
+
+    _action=created
+    if [ "$_match_count" -eq 1 ]; then
+      if [ "$REPLACE" -ne 1 ]; then
+        printf '{"existing":'
+        record_json "$_matches"
+        printf ',"message":'
+        json_string "atom already exists and --replace was not supplied: $_atom"
+        printf ',"ok":false}\n'
+        exit 1
+      fi
+      if [ "$_existing_file" = "$_target_file" ] && [ "$_existing_raw" = "$_raw" ]; then
+        _action=unchanged
+      elif [ "$_existing_file" = "$_target_file" ]; then
+        _action=replaced
+      else
+        _action=moved
+        TOUCHED_FILES=$(unique_append "$TOUCHED_FILES" "$_existing_file")
+      fi
+    fi
+
+    TOUCHED_FILES=$(unique_append "$TOUCHED_FILES" "$_target_file")
+    FINAL_RECORDS=$(drop_atom_records "$FINAL_RECORDS" "$_atom")
+    _new_record=$(printf '%s\t0\t%s\t%s\t%s\t%s' "$_target_file" "$_type" "$_id" "$_atom" "$_raw")
+    FINAL_RECORDS=$(append_line "$FINAL_RECORDS" "$_new_record")
+    _operation=$(printf '%s\t%s\t%s' "$_action" "$_atom" "$_target_file")
+    OPERATIONS=$(append_line "$OPERATIONS" "$_operation")
+  done
+fi
 set +f
 IFS=$_old_ifs
 

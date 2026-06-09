@@ -109,6 +109,7 @@ For `fea`, only `name` is required. `summary` and `notes` are optional.
 - Touched files are rendered as type sections with blank lines between sections.
 - Atoms within each touched file are sorted by `type:id`.
 - Replacing an existing atom without `--file` updates the matched atom in place.
+- Deleting atoms requires exact `type:id` selectors; wildcard deletes are not supported.
 - Passing `--file` intentionally overrides the default target path.
 - Same-type concurrent edits can still conflict when they touch the same insertion point; resolve those conflicts by preserving each intended atom line in sorted order.
 

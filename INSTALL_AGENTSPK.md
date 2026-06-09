@@ -69,7 +69,7 @@ When to write AgentSPK:
 - Do not record routine implementation steps, command results, refactors, formatting, small fixes, or details that are immediately discoverable in source code.
 - Prefer compact atoms that summarize a cohesive area and point to detailed code or documentation with `ref` entries. Split atoms only when a subtopic has independently important specification, relations, or retrieval value.
 - Use `chg` atoms only for historical changes that future agents must know to understand why a specification or code path exists, such as legacy migrations or deprecated-but-still-present behavior. Do not create `chg` atoms for every code change.
-- Read `.agents/skills/write-spk/SKILL.md` before creating or updating atoms.
+- Read `.agents/skills/write-spk/SKILL.md` before creating, updating, or deleting atoms.
 - Use the write CLI's default sectioned storage for new atoms unless the user or repository rules explicitly require `--file`.
 - Do not overwrite an existing atom unless you intentionally pass `--replace`.
 

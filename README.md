@@ -38,6 +38,7 @@ AgentSPK packages its tooling inside the skill directories using the Agent Skill
 
 ```bash
 skills/write-spk/scripts/agentspk-write --root . --atom 'goal:G1 | outcome="..."; metric="..."; target="..."; reason="..."'
+skills/write-spk/scripts/agentspk-write --root . --delete 'goal:G1'
 skills/search-spk/scripts/agentspk-search --root . --selector 'beh:B_*' --include-related
 skills/check-spk/scripts/agentspk-check --root .
 ```
@@ -47,9 +48,10 @@ The CLI guarantees:
 - sectioned default storage for new atoms in `spec/specifications.spk`
 - deterministic atom sorting by type and id within touched files
 - explicit duplicate replacement via `--replace`
+- exact atom deletion via repeated `--delete 'type:id'`
 - machine-readable JSON output for agents
 
-By default, new atoms go to `spec/specifications.spk`. Touched files are rendered as type sections with blank lines between sections, and replacements update matched atoms in place unless `--file` is explicitly provided.
+By default, new atoms go to `spec/specifications.spk`. Touched files are rendered as type sections with blank lines between sections, replacements update matched atoms in place unless `--file` is explicitly provided, and deletes require exact `type:id` matches.
 
 ## Installing In Another Project
 
