@@ -82,7 +82,8 @@ Language and format rules:
 Validation:
 
 - Read `.agents/skills/check-spk/SKILL.md` before validating or repairing the atomset.
-- After meaningful AgentSPK edits, or when the specification may be stale or inconsistent, run the checker and repair issues when appropriate.
+- Do not run the checker just because you used the write CLI.
+- Run the checker when the specification may be stale or inconsistent, or after manually editing `spec/specifications.spk` by hand, which should generally be avoided.
 
 Tools:
 
