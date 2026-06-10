@@ -10,17 +10,17 @@ Use this skill when you need to create, update, delete, or intentionally move at
 
 ## Available Scripts
 
-- `scripts/agentspk-write` - POSIX shell CLI for write operations.
-- `scripts/agentspk-write.ps1` - PowerShell launcher for the bundled write CLI.
+- `.agents/skills/write-spk/scripts/agentspk-write` - POSIX shell CLI for write operations.
+- `.agents/skills/write-spk/scripts/agentspk-write.ps1` - PowerShell launcher for the bundled write CLI.
 
 ## Canonical Command
 
 ```bash
-scripts/agentspk-write
+.agents/skills/write-spk/scripts/agentspk-write
 ```
 
 ```powershell
-pwsh -File scripts/agentspk-write.ps1
+pwsh -File .agents/skills/write-spk/scripts/agentspk-write.ps1
 ```
 
 ## Rules
@@ -56,7 +56,7 @@ The tool rewrites managed `.spk` files mechanically so diffs stay predictable:
 Create a new atom:
 
 ```bash
-scripts/agentspk-write --root . --atom 'goal:G_CART_RECOVERY | outcome="increase resumed purchases"; metric="saved-for-later conversion"; target="15%"; reason="buyers often leave before checkout"'
+.agents/skills/write-spk/scripts/agentspk-write --root . --atom 'goal:G_CART_RECOVERY | outcome="increase resumed purchases"; metric="saved-for-later conversion"; target="15%"; reason="buyers often leave before checkout"'
 ```
 
 The default output path for that atom is `spec/specifications.spk`.
@@ -64,19 +64,19 @@ The default output path for that atom is `spec/specifications.spk`.
 Update an existing atom intentionally:
 
 ```bash
-scripts/agentspk-write --root . --replace --atom 'goal:G_CART_RECOVERY | outcome="increase resumed purchases"; metric="saved-for-later conversion"; target="20%"; reason="buyers often leave before checkout"'
+.agents/skills/write-spk/scripts/agentspk-write --root . --replace --atom 'goal:G_CART_RECOVERY | outcome="increase resumed purchases"; metric="saved-for-later conversion"; target="20%"; reason="buyers often leave before checkout"'
 ```
 
 Write multiple atoms in one call:
 
 ```bash
-scripts/agentspk-write --root . --atom 'uss:U_SAVE | as="buyer"; want="save items for later"; because="I may purchase later from another device" | rel:requires:fea:F_SAVE' --atom 'fea:F_SAVE | name="Save For Later" | rel:requires:beh:B_SAVE,uses:api:A_CART'
+.agents/skills/write-spk/scripts/agentspk-write --root . --atom 'uss:U_SAVE | as="buyer"; want="save items for later"; because="I may purchase later from another device" | rel:requires:fea:F_SAVE' --atom 'fea:F_SAVE | name="Save For Later" | rel:requires:beh:B_SAVE,uses:api:A_CART'
 ```
 
 Delete one or more atoms by exact id:
 
 ```bash
-scripts/agentspk-write --root . --delete 'uss:U_SAVE' --delete 'fea:F_SAVE'
+.agents/skills/write-spk/scripts/agentspk-write --root . --delete 'uss:U_SAVE' --delete 'fea:F_SAVE'
 ```
 
 ## Output

@@ -10,17 +10,17 @@ Use this skill when you need to validate the overall health of an SPK atomset be
 
 ## Available Scripts
 
-- `scripts/agentspk-check` - POSIX shell CLI for check operations.
-- `scripts/agentspk-check.ps1` - PowerShell launcher for the bundled check CLI.
+- `.agents/skills/check-spk/scripts/agentspk-check` - POSIX shell CLI for check operations.
+- `.agents/skills/check-spk/scripts/agentspk-check.ps1` - PowerShell launcher for the bundled check CLI.
 
 ## Canonical Command
 
 ```bash
-scripts/agentspk-check
+.agents/skills/check-spk/scripts/agentspk-check
 ```
 
 ```powershell
-pwsh -File scripts/agentspk-check.ps1
+pwsh -File .agents/skills/check-spk/scripts/agentspk-check.ps1
 ```
 
 ## What It Checks
@@ -42,7 +42,7 @@ pwsh -File scripts/agentspk-check.ps1
 ## Example
 
 ```bash
-scripts/agentspk-check --root .
+.agents/skills/check-spk/scripts/agentspk-check --root .
 ```
 
 ## Output

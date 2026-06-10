@@ -10,17 +10,17 @@ Use this skill when you need to load one atom, many atoms, wildcard matches, rel
 
 ## Available Scripts
 
-- `scripts/agentspk-search` - POSIX shell CLI for search operations.
-- `scripts/agentspk-search.ps1` - PowerShell launcher for the bundled search CLI.
+- `.agents/skills/search-spk/scripts/agentspk-search` - POSIX shell CLI for search operations.
+- `.agents/skills/search-spk/scripts/agentspk-search.ps1` - PowerShell launcher for the bundled search CLI.
 
 ## Canonical Command
 
 ```bash
-scripts/agentspk-search
+.agents/skills/search-spk/scripts/agentspk-search
 ```
 
 ```powershell
-pwsh -File scripts/agentspk-search.ps1
+pwsh -File .agents/skills/search-spk/scripts/agentspk-search.ps1
 ```
 
 ## Rules
@@ -49,31 +49,31 @@ pwsh -File scripts/agentspk-search.ps1
 Load one atom:
 
 ```bash
-scripts/agentspk-search --root . --selector 'beh:B_SAVE'
+.agents/skills/search-spk/scripts/agentspk-search --root . --selector 'beh:B_SAVE'
 ```
 
 Load multiple atoms:
 
 ```bash
-scripts/agentspk-search --root . --selector 'goal:G_CART_RECOVERY' --selector 'fea:F_SAVE'
+.agents/skills/search-spk/scripts/agentspk-search --root . --selector 'goal:G_CART_RECOVERY' --selector 'fea:F_SAVE'
 ```
 
 Load wildcard matches plus their neighbors:
 
 ```bash
-scripts/agentspk-search --root . --selector 'cmp:C_*' --include-related --depth 1
+.agents/skills/search-spk/scripts/agentspk-search --root . --selector 'cmp:C_*' --include-related --depth 1
 ```
 
 Load by text pattern:
 
 ```bash
-scripts/agentspk-search --root . --text 'save items'
+.agents/skills/search-spk/scripts/agentspk-search --root . --text 'save items'
 ```
 
 Load the full atomset:
 
 ```bash
-scripts/agentspk-search --root . --all
+.agents/skills/search-spk/scripts/agentspk-search --root . --all
 ```
 
 ## Output
