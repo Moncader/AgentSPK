@@ -326,7 +326,28 @@ EOF
   json_assert "$_out" 'data["ok"] is True and data["summary"]["errors"] == 4 and data["summary"]["warnings"] >= 1 and {issue["code"] for issue in data["issues"]} >= {"parse_error", "duplicate_atom", "missing_relation_target", "missing_reference_path", "strangler_atom"}'
 }
 
+test_agents_instructions_use_explicit_decision_workflow() {
+  for _file in "$REPO_ROOT/AGENTS.md" "$REPO_ROOT/INSTALL_AGENTSPK.md"; do
+    _content=$(cat "$_file")
+    contains_assert "$_content" "Before editing: decide whether to search"
+    contains_assert "$_content" "MUST search AgentSPK before editing if any answer is yes"
+    contains_assert "$_content" "A search with no match is not a reason to stop"
+    contains_assert "$_content" "Before finishing: decide whether to write"
+    contains_assert "$_content" "MUST update AgentSPK before finishing"
+    contains_assert "$_content" "Never invent AgentSPK commands"
+  done
+
+  _install=$(cat "$REPO_ROOT/INSTALL_AGENTSPK.md")
+  contains_assert "$_install" '.agents/skills/search-spk/SKILL.md'
+  contains_assert "$_install" '.agents/skills/write-spk/SKILL.md'
+
+  _self_hosted=$(cat "$REPO_ROOT/AGENTS.md")
+  contains_assert "$_self_hosted" '`skills/search-spk/SKILL.md`'
+  contains_assert "$_self_hosted" '`skills/write-spk/SKILL.md`'
+}
+
 run_test "entrypoints and help" test_entrypoints_and_help
+run_test "AGENTS instructions use explicit decision workflow" test_agents_instructions_use_explicit_decision_workflow
 run_test "write creates default sectioned sorted file" test_write_creates_default_sectioned_sorted_file
 run_test "write rejects duplicates and replaces in place" test_write_rejects_duplicates_and_replaces_in_place
 run_test "write file override and move" test_write_file_override_and_move
